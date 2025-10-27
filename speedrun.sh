@@ -18,6 +18,9 @@ mkdir -p $NANOCHAT_BASE_DIR
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
 
+# install build essentials
+command -v cc &> /dev/null || (echo "Installing build-essential..." && sudo apt-get update && sudo apt-get install -y build-essential)
+
 # install uv (if not already installed)
 command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 # create a .venv local virtual environment (if it doesn't exist)
