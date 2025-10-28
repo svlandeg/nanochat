@@ -5,7 +5,6 @@ Common utilities for nanochat.
 import os
 import re
 import logging
-import fcntl
 import urllib.request
 import torch
 import torch.distributed as dist
@@ -59,6 +58,8 @@ def get_base_dir():
     return nanochat_dir
 
 def download_file_with_lock(url, filename):
+    import fcntl
+
     """
     Downloads a file from a URL to a local path in the base directory.
     Uses a lock file to prevent concurrent downloads among multiple ranks.
