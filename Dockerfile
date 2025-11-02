@@ -10,5 +10,6 @@ RUN apt-get update && \
 
 ENV PATH="/root/.cargo/bin:/root/.local/bin:${PATH}"
 
-COPY speedrun.sh /app/speedrun.sh
+COPY . /app/
+
 CMD ["bash", "speedrun.sh"]
