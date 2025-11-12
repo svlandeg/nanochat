@@ -82,6 +82,7 @@ python -m scripts.tok_eval
 echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
+# Number of processes/GPUs to use
 NPROC_PER_NODE=1
 
 # pretrain the d20 model
