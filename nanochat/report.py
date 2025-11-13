@@ -233,14 +233,14 @@ class Report:
     """Maintains a bunch of logs, generates a final markdown report."""
 
     def __init__(self, report_dir):
-        os.makedirs(report_dir, exist_ok=True)
+        report_dir.mkdir(parents=True, exist_ok=True)
         self.report_dir = report_dir
 
     def log(self, section, data):
         """Log a section of data to the report."""
         slug = slugify(section)
         file_name = f"{slug}.md"
-        file_path = os.path.join(self.report_dir, file_name)
+        file_path = self.report_dir / file_name
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(f"## {section}\n")
             f.write(f"timestamp: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -267,15 +267,15 @@ class Report:
     def generate(self):
         """Generate the final report."""
         report_dir = self.report_dir
-        report_file = os.path.join(report_dir, "report.md")
+        report_file = report_dir / "report.md"
         print(f"Generating report to {report_file}")
         final_metrics = {} # the most important final metrics we'll add as table at the end
         start_time = None
         end_time = None
         with open(report_file, "w", encoding="utf-8") as out_file:
             # write the header first
-            header_file = os.path.join(report_dir, "header.md")
-            if os.path.exists(header_file):
+            header_file = report_dir / "header.md"
+            if header_file.exists():
                 with open(header_file, "r", encoding="utf-8") as f:
                     header_content = f.read()
                     out_file.write(header_content)
@@ -289,8 +289,8 @@ class Report:
                 print(f"Warning: {header_file} does not exist. Did you forget to run `nanochat reset`?")
             # process all the individual sections
             for file_name in EXPECTED_FILES:
-                section_file = os.path.join(report_dir, file_name)
-                if not os.path.exists(section_file):
+                section_file = report_dir / file_name
+                if not section_file.exists():
                     print(f"Warning: {section_file} does not exist, skipping")
                     continue
                 with open(section_file, "r", encoding="utf-8") as in_file:
@@ -362,15 +362,13 @@ class Report:
         """Reset the report."""
         # Remove section files
         for file_name in EXPECTED_FILES:
-            file_path = os.path.join(self.report_dir, file_name)
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            file_path = self.report_dir / file_name
+            file_path.unlink(missing_ok=True)
         # Remove report.md if it exists
-        report_file = os.path.join(self.report_dir, "report.md")
-        if os.path.exists(report_file):
-            os.remove(report_file)
+        report_file = self.report_dir / "report.md"
+        report_file.unlink(missing_ok=True)
         # Generate and write the header section with start timestamp
-        header_file = os.path.join(self.report_dir, "header.md")
+        header_file = self.report_dir / "header.md"
         header = generate_header()
         start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with open(header_file, "w", encoding="utf-8") as f:
@@ -392,7 +390,7 @@ def get_report():
     from nanochat.common import get_base_dir, get_dist_info
     ddp, ddp_rank, ddp_local_rank, ddp_world_size = get_dist_info()
     if ddp_rank == 0:
-        report_dir = os.path.join(get_base_dir(), "report")
+        report_dir = get_base_dir() / "report"
         return Report(report_dir)
     else:
         return DummyReport()

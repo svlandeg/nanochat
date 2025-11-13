@@ -80,7 +80,7 @@ engine = Engine(model, tokenizer) # will be used for inline model evaluation onl
 
 # -----------------------------------------------------------------------------
 # Task data mixture we'll train on
-identity_conversations_filepath = os.path.join(get_base_dir(), "identity_conversations.jsonl")
+identity_conversations_filepath = get_base_dir() / "identity_conversations.jsonl"
 train_ds = TaskMixture([
     ARC(subset="ARC-Easy", split="train"), # 2.3K rows
     ARC(subset="ARC-Challenge", split="train"), # 1.1K rows
@@ -252,7 +252,7 @@ if master_process:
     base_dir = get_base_dir()
     depth = model.config.n_layer
     model_tag = f"d{depth}" # base the model tag on the depth of the base model
-    checkpoint_dir = os.path.join(base_dir, "chatsft_checkpoints", model_tag)
+    checkpoint_dir = base_dir / "chatsft_checkpoints" / model_tag
     model_config_kwargs = model.config.__dict__ # slightly naughty, abusing the simplicity of GPTConfig, TODO nicer
     save_checkpoint(
         checkpoint_dir,

@@ -434,9 +434,9 @@ def enwik8_path():
     base_dir = get_base_dir()
     # download and unzip enwik8 to .cache directory
     enwik8_url = "https://mattmahoney.net/dc/enwik8.zip"
-    enwik8_local_path = os.path.join(base_dir, "enwik8")
-    enwik8_local_path_zip = os.path.join(base_dir, "enwik8.zip")
-    if not os.path.exists(enwik8_local_path):
+    enwik8_local_path = base_dir / "enwik8"
+    enwik8_local_path_zip = base_dir / "enwik8.zip"
+    if not enwik8_local_path.exists():
         print(f"Downloading enwik8 to {enwik8_local_path_zip}")
         import requests
         response = requests.get(enwik8_url)

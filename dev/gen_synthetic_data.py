@@ -30,7 +30,6 @@ NOTE: For more details see this discussion: https://github.com/karpathy/nanochat
 """
 import requests
 import json
-import os
 import copy
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -346,10 +345,9 @@ def generate_conversation(idx: int):
 num_conversations = 1000
 num_workers = 4
 
-output_file = os.path.join(get_base_dir(), "identity_conversations.jsonl")
+output_file = get_base_dir() / "identity_conversations.jsonl"
 # Wipe the file clean first to reset it
-if os.path.exists(output_file):
-    os.remove(output_file)
+output_file.unlink(missing_ok=True)
 print(f"Saving to {output_file}")
 
 # Use ThreadPoolExecutor to generate conversations in parallel

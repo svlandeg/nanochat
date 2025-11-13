@@ -94,7 +94,7 @@ for opt in optimizers:
 
 # Midtraining data mixture and DataLoader
 base_dir = get_base_dir()
-identity_conversations_filepath = os.path.join(base_dir, "identity_conversations.jsonl")
+identity_conversations_filepath = base_dir / "identity_conversations.jsonl"
 train_dataset = TaskMixture([
     SmolTalk(split="train"), # 460K rows of general conversations
     MMLU(subset="auxiliary_train", split="train"), # 100K rows of multiple choice problems drawn from ARC, MC_TEST, OBQA, RACE
@@ -208,7 +208,7 @@ while True:
     # save checkpoint at the end of the run (only on master process)
     if master_process and last_step and not dry_run:
         output_dirname = f"d{depth}" # e.g. d12
-        checkpoint_dir = os.path.join(base_dir, "mid_checkpoints", output_dirname)
+        checkpoint_dir = base_dir / "mid_checkpoints" / output_dirname
         save_checkpoint(
             checkpoint_dir,
             step,

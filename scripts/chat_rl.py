@@ -308,7 +308,7 @@ for step in range(num_steps):
         base_dir = get_base_dir()
         depth = model.config.n_layer
         model_tag = f"d{depth}" # base the model tag on the depth of the base model
-        checkpoint_dir = os.path.join(base_dir, "chatrl_checkpoints", model_tag)
+        checkpoint_dir = base_dir / "chatrl_checkpoints" / model_tag
         model_config_kwargs = model.config.__dict__ # slightly naughty, abusing the simplicity of GPTConfig, TODO nicer
         save_checkpoint(
             checkpoint_dir,

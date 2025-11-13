@@ -145,7 +145,7 @@ adamw_optimizer, muon_optimizer = optimizers
 
 # Initialize the DataLoaders for train/val
 base_dir = get_base_dir()
-tokens_dir = os.path.join(base_dir, "tokenized_data")
+tokens_dir = base_dir / "tokenized_data"
 train_loader = tokenizing_distributed_data_loader(device_batch_size, max_seq_len, split="train", device=device)
 build_val_loader = lambda: tokenizing_distributed_data_loader(device_batch_size, max_seq_len, split="val", device=device)
 x, y = next(train_loader) # kick off load of the very first batch of data
@@ -240,7 +240,7 @@ for step in range(num_iterations + 1):
     # save checkpoint at the end of the run (only on master process)
     if master_process and last_step:
         output_dirname = model_tag if model_tag else f"d{depth}" # e.g. d12
-        checkpoint_dir = os.path.join(base_dir, "base_checkpoints", output_dirname)
+        checkpoint_dir = base_dir / "base_checkpoints" / output_dirname
         save_checkpoint(
             checkpoint_dir,
             step,
