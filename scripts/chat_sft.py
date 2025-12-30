@@ -219,7 +219,6 @@ for step in range(num_iterations):
         dist.all_reduce(num_tokens, op=dist.ReduceOp.SUM) # sum over ranks
 
     for micro_step, (train_inputs, train_targets) in enumerate(steps):
-        batch_num_tokens = (train_targets >= 0).sum()
         with autocast_ctx:
             loss = model(train_inputs, train_targets, loss_reduction='sum')
         loss = loss / num_tokens # normalize loss here
