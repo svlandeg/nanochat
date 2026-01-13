@@ -11,7 +11,7 @@ WANDB_RUN="${WANDB_RUN:-scaling}"
 EVAL_TOKENS=$((100 * 524288))  # ~100M tokens for final eval (default is ~10M)
 
 export OMP_NUM_THREADS=1
-export NANOCHAT_BASE_DIR="${NANOCHAT_BASE_DIR:-$HOME/.cache/nanochat}"
+export NANOCHAT_BASE_DIR="/d/nanochat_home"
 source .venv/bin/activate
 
 RESULTS_DIR="$NANOCHAT_BASE_DIR/scaling_laws_results"
