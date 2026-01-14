@@ -28,8 +28,10 @@ import os
 os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 # Official docs of FA3 label it as "beta" and want you to install FA3 from source, which is a pain.
 # Wishing for official FA3 wheels soon, for now this seems to be a fast way to get them (ty varunneal)
-from kernels import get_kernel
-flash_attn = get_kernel('varunneal/flash-attention-3').flash_attn_interface
+# from kernels import get_kernel
+# flash_attn = get_kernel('varunneal/flash-attention-3').flash_attn_interface
+
+import flash_attn_3 as flash_attn
 
 @dataclass
 class GPTConfig:
