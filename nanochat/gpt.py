@@ -31,7 +31,7 @@ os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
 # from kernels import get_kernel
 # flash_attn = get_kernel('varunneal/flash-attention-3').flash_attn_interface
 
-import flash_attn_3 as flash_attn
+import flash_attn_interface as flash_attn
 
 @dataclass
 class GPTConfig:
