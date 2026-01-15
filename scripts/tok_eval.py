@@ -213,8 +213,8 @@ def print_comparison(baseline_name, baseline_results, ours_results, all_text):
         ours_data = ours_results[name]
 
         # Calculate relative difference (positive means ours is better, negative means worse)
-        # Using tokens: fewer tokens is better, so we calculate (baseline_tokens - ours_tokens) / baseline_tokens
-        relative_diff = ((baseline_data['tokens'] - ours_data['tokens']) / baseline_data['tokens']) * 100
+        # Using ratios: higher ratio is better, so we calculate (ours_ratio - baseline_ratio) / baseline_ratio
+        relative_diff = ((ours_data['ratio'] - baseline_data['ratio']) / baseline_data['ratio']) * 100
 
         # Determine which has better compression (higher ratio = better)
         if baseline_data['ratio'] > ours_data['ratio']:
@@ -256,7 +256,7 @@ for baseline_name in ["GPT-2", "GPT-4"]:
     for name, text in all_text:
         baseline_data = baseline_results[name]
         ours_data = ours_results[name]
-        relative_diff = ((baseline_data['tokens'] - ours_data['tokens']) / baseline_data['tokens']) * 100
+        relative_diff = ((ours_data['ratio'] - baseline_data['ratio']) / baseline_data['ratio']) * 100
         lines.append(f"| {name} | {baseline_data['bytes']} | {baseline_data['tokens']} | {baseline_data['ratio']:.2f} | {ours_data['tokens']} | {ours_data['ratio']:.2f} | {relative_diff:+.1f}% |")
     lines.append("")
 report_markdown = "\n".join(lines)
