@@ -376,12 +376,13 @@ while True:
     # -------------------------------------------------------------------------
 
     # logging (CPU action only)
+    eps = 0.00001
     ema_beta = 0.9 # EMA decay factor for some smoothing just for nicer logging
     smooth_train_loss = ema_beta * smooth_train_loss + (1 - ema_beta) * train_loss_f # EMA the training loss
     debiased_smooth_loss = smooth_train_loss / (1 - ema_beta**(step + 1)) # debias the EMA
     pct_done = 100 * step / num_iterations
-    tok_per_sec = int(args.total_batch_size / dt)
-    flops_per_sec = num_flops_per_token * args.total_batch_size / dt
+    tok_per_sec = int(args.total_batch_size / (dt + 0.00001))
+    flops_per_sec = num_flops_per_token * args.total_batch_size / (dt + 0.00001)
     promised_flops_per_sec_h100 = 989e12 * ddp_world_size # bfloat16 H100 SXM and without 2:4 sparsity
     mfu = 100 * flops_per_sec / promised_flops_per_sec_h100 # in %
     if step > 10:
