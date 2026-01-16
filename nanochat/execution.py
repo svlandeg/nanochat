@@ -144,7 +144,7 @@ def reliability_guard(maximum_memory_bytes: Optional[int] = None):
     with caution.
     """
 
-    if platform.uname().system != "Darwin":
+    if platform.uname().system not in ("Darwin", "Windows"):
         # These resource limit calls seem to fail on macOS (Darwin), skip?
         import resource
         resource.setrlimit(resource.RLIMIT_AS, (maximum_memory_bytes, maximum_memory_bytes))
