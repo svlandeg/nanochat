@@ -69,9 +69,20 @@ wait $DATASET_DOWNLOAD_PID
 NPROC_PER_NODE=8
 
 # pretrain the d20 model
-python -m scripts.base_train --depth=4 --max-seq-len=512 --device-batch-size=4 --eval-tokens=512 --core-metric-every=-1 --total-batch-size=512 --num-iterations=20 --target-param-data-ratio=20 --run=$WANDB_RUN
+python -m scripts.base_train \
+    --depth=4 \
+    --max-seq-len=1024 \
+    --device-batch-size=1 \
+    --total-batch-size=1024 \
+    --eval-every=50 \
+    --eval-tokens=4096 \
+    --core-metric-every=50 \
+    --core-metric-max-per-task=12 \
+    --sample-every=50 \
+    --num-iterations=50 \
+    --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
-python -m scripts.base_loss
+python -m scripts.base_loss --device-batch-size=1 --split-tokens=4096
 # evaluate the model on CORE tasks
 python -m scripts.base_eval --max-per-task 50
 
@@ -83,14 +94,28 @@ python -m scripts.base_eval --max-per-task 50
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run midtraining and eval the model
-python -m scripts.mid_train --run=$WANDB_RUN --device-batch-size=4
-python -m scripts.chat_eval -i mid --max-problems=10
+python -m scripts.mid_train \
+    --max-seq-len=1024 \
+    --device-batch-size=1 \
+    --eval-every=50 \
+    --eval-tokens=4096 \
+    --total-batch-size=1024 \
+    --num-iterations=100 \
+    --run=$WANDB_RUN
+python -m scripts.chat_eval -i mid --max-new-tokens=128 --max-problems=10
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning (domain adaptation to each sequence all by itself per row)
 
 # train sft and re-eval right away (should see a small bump)
-python -m scripts.chat_sft --run=$WANDB_RUN --device-batch-size=4
+python -m scripts.chat_sft \
+    --device-batch-size=1 \
+    --target-examples-per-step=4 \
+    --num-iterations=100 \
+    --eval-steps=4 \
+    --eval-metrics-max-problems=16 \
+    --run=$WANDB_RUN
+
 python -m scripts.chat_eval -i sft --max-problems=10
 
 # chat with the model over CLI! Leave out the -p to chat interactively
