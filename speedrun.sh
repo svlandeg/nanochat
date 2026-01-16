@@ -69,11 +69,11 @@ wait $DATASET_DOWNLOAD_PID
 NPROC_PER_NODE=8
 
 # pretrain the d20 model
-python -m scripts.base_train --depth=4 --max-seq-len=512 --device-batch-size=1 --eval-tokens=512 --core-metric-every=-1 --total-batch-size=512 --num-iterations=20 --target-param-data-ratio=20 --run=$WANDB_RUN
+python -m scripts.base_train --depth=4 --max-seq-len=512 --device-batch-size=4 --eval-tokens=512 --core-metric-every=-1 --total-batch-size=512 --num-iterations=20 --target-param-data-ratio=20 --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
 python -m scripts.base_loss
 # evaluate the model on CORE tasks
-python -m scripts.base_eval
+python -m scripts.base_eval --max-per-task 50
 
 # -----------------------------------------------------------------------------
 # Midtraining (teach the model conversation special tokens, tool use, multiple choice)
@@ -83,15 +83,15 @@ python -m scripts.base_eval
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run midtraining and eval the model
-python -m scripts.mid_train --run=$WANDB_RUN
-python -m scripts.chat_eval -- -i mid
+python -m scripts.mid_train --run=$WANDB_RUN --device-batch-size=4
+python -m scripts.chat_eval -i mid --max-problems=10
 
 # -----------------------------------------------------------------------------
 # Supervised Finetuning (domain adaptation to each sequence all by itself per row)
 
 # train sft and re-eval right away (should see a small bump)
-python -m scripts.chat_sft --run=$WANDB_RUN
-python -m scripts.chat_eval -- -i sft
+python -m scripts.chat_sft --run=$WANDB_RUN --device-batch-size=4
+python -m scripts.chat_eval -i sft --max-problems=10
 
 # chat with the model over CLI! Leave out the -p to chat interactively
 # python -m scripts.chat_cli -p "Why is the sky blue?"
@@ -104,9 +104,9 @@ python -m scripts.chat_eval -- -i sft
 # (optional)
 
 # run reinforcement learning
-# python -m scripts.chat_rl -- --run=$WANDB_RUN
+# python -m scripts.chat_rl --run=$WANDB_RUN
 # eval the RL model only on GSM8K
-# python -m scripts.chat_eval -- -i rl -a GSM8K
+# python -m scripts.chat_eval -i rl -a GSM8K
 
 # -----------------------------------------------------------------------------
 # Generate the full report by putting together all the sections
