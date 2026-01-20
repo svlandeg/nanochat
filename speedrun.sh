@@ -65,24 +65,22 @@ python -m scripts.tok_eval
 echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
-# Number of processes/GPUs to use
-NPROC_PER_NODE=8
-
 # pretrain the d20 model
 python -m scripts.base_train \
-    --depth=4 \
-    --max-seq-len=1024 \
-    --device-batch-size=1 \
-    --total-batch-size=1024 \
-    --eval-every=50 \
-    --eval-tokens=4096 \
-    --core-metric-every=50 \
+    --depth=6 \
+    --head-dim=64 \
+    --max-seq-len=512 \
+    --device-batch-size=32 \
+    --total-batch-size=16384 \
+    --eval-every=100 \
+    --eval-tokens=524288 \
+    --core-metric-every=-1 \
     --core-metric-max-per-task=12 \
-    --sample-every=50 \
-    --num-iterations=50 \
+    --sample-every=100 \
+    --num-iterations=5000 \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
-python -m scripts.base_loss --device-batch-size=1 --split-tokens=4096
+python -m scripts.base_loss --device-batch-size=1 --split-tokens=16384
 # evaluate the model on CORE tasks
 python -m scripts.base_eval --max-per-task 50
 
@@ -95,12 +93,12 @@ curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-publ
 
 # run midtraining and eval the model
 python -m scripts.mid_train \
-    --max-seq-len=1024 \
-    --device-batch-size=1 \
-    --eval-every=50 \
-    --eval-tokens=4096 \
-    --total-batch-size=1024 \
-    --num-iterations=100 \
+    --max-seq-len=512 \
+    --device-batch-size=32 \
+    --eval-every=200 \
+    --eval-tokens=524288 \
+    --total-batch-size=16384 \
+    --num-iterations=1500 \
     --run=$WANDB_RUN
 python -m scripts.chat_eval -i mid --max-new-tokens=128 --max-problems=10
 
@@ -108,15 +106,15 @@ python -m scripts.chat_eval -i mid --max-new-tokens=128 --max-problems=10
 # Supervised Finetuning (domain adaptation to each sequence all by itself per row)
 
 # train sft and re-eval right away (should see a small bump)
-python -m scripts.chat_sft \
-    --device-batch-size=1 \
-    --target-examples-per-step=4 \
-    --num-iterations=100 \
-    --eval-steps=4 \
-    --eval-metrics-max-problems=16 \
-    --run=$WANDB_RUN
-
-python -m scripts.chat_eval -i sft --max-problems=10
+#python -m scripts.chat_sft \
+#    --device-batch-size=1 \
+#    --target-examples-per-step=4 \
+#    --num-iterations=100 \
+#    --eval-steps=4 \
+#    --eval-metrics-max-problems=16 \
+#    --run=$WANDB_RUN
+#
+#python -m scripts.chat_eval -i sft --max-problems=10
 
 # chat with the model over CLI! Leave out the -p to chat interactively
 # python -m scripts.chat_cli -p "Why is the sky blue?"
