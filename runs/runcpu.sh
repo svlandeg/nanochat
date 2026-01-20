@@ -68,3 +68,6 @@ python -m scripts.mid_train \
 
 # Chat with the model over a pretty WebUI ChatGPT style
 # python -m scripts.chat_web -i mid
+
+# generate final report
+python -m nanochat.report generate
