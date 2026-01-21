@@ -64,7 +64,7 @@ def download_single_file(index):
     filename = index_to_filename(index)
     filepath = os.path.join(DATA_DIR, filename)
     if os.path.exists(filepath):
-        print(f"Skipping {filepath} (already exists)")
+        # print(f"Skipping {filepath} (already exists)")
         return True
 
     # Construct the remote URL for this file

@@ -67,16 +67,16 @@ wait $DATASET_DOWNLOAD_PID
 
 # pretrain the d20 model
 python -m scripts.base_train \
-    --depth=6 \
+    --depth=8 \
     --head-dim=64 \
     --max-seq-len=512 \
     --device-batch-size=32 \
     --total-batch-size=16384 \
-    --eval-every=100 \
+    --eval-every=500 \
     --eval-tokens=524288 \
     --core-metric-every=-1 \
     --core-metric-max-per-task=12 \
-    --sample-every=100 \
+    --sample-every=500 \
     --num-iterations=5000 \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
