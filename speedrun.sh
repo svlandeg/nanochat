@@ -67,7 +67,7 @@ wait $DATASET_DOWNLOAD_PID
 
 # pretrain the d20 model
 python -m scripts.base_train \
-    --depth=10 \
+    --depth=12 \
     --head-dim=64 \
     --max-seq-len=512 \
     --device-batch-size=32 \
