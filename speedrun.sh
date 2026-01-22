@@ -72,12 +72,12 @@ python -m scripts.base_train \
     --max-seq-len=512 \
     --device-batch-size=32 \
     --total-batch-size=16384 \
-    --eval-every=500 \
+    --eval-every=1000 \
     --eval-tokens=524288 \
     --core-metric-every=-1 \
     --core-metric-max-per-task=12 \
-    --sample-every=500 \
-    --num-iterations=5000 \
+    --sample-every=1000 \
+#    --num-iterations=5000 \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
 python -m scripts.base_loss --device-batch-size=1 --split-tokens=16384
@@ -95,10 +95,10 @@ curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-publ
 python -m scripts.mid_train \
     --max-seq-len=512 \
     --device-batch-size=32 \
-    --eval-every=200 \
+    --eval-every=1000 \
     --eval-tokens=524288 \
     --total-batch-size=16384 \
-    --num-iterations=1500 \
+#    --num-iterations=1500 \
     --run=$WANDB_RUN
 python -m scripts.chat_eval -i mid --max-new-tokens=128 --max-problems=10
 
