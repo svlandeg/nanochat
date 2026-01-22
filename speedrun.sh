@@ -72,11 +72,11 @@ python -m scripts.base_train \
     --max-seq-len=512 \
     --device-batch-size=32 \
     --total-batch-size=16384 \
-    --eval-every=1000 \
+    --eval-every=10000 \
     --eval-tokens=524288 \
     --core-metric-every=-1 \
     --core-metric-max-per-task=12 \
-    --sample-every=1000 \
+    --sample-every=10000 \
 #    --num-iterations=5000 \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
