@@ -15,17 +15,7 @@ export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="/d/nanochat_home"
 mkdir -p $NANOCHAT_BASE_DIR
 
-# -----------------------------------------------------------------------------
-# wandb setup
-# If you wish to use wandb for logging (it's nice!, recommended).
-# 1) Make sure to first log in to wandb, e.g. run:
-#    `wandb login`
-# 2) Set the WANDB_RUN environment variable when running this script, e.g.:
-#    `WANDB_RUN=d26 bash speedrun.sh`
-if [ -z "$WANDB_RUN" ]; then
-    # by default use "dummy" : it's handled as a special case, skips logging to wandb
-    WANDB_RUN=dummy
-fi
+WANDB_RUN="run6_d12_1000"
 
 # -----------------------------------------------------------------------------
 # During the course of the run, we will be writing markdown reports to the report/
@@ -72,12 +62,12 @@ python -m scripts.base_train \
     --max-seq-len=512 \
     --device-batch-size=32 \
     --total-batch-size=16384 \
-    --eval-every=10000 \
+    --eval-every=500 \
     --eval-tokens=524288 \
     --core-metric-every=-1 \
     --core-metric-max-per-task=12 \
-    --sample-every=10000 \
-    --num-iterations=-1 \
+    --sample-every=500 \
+    --num-iterations=1000 \
     --run=$WANDB_RUN
 # evaluate the model on a larger chunk of train/val data and draw some samples
 python -m scripts.base_loss --device-batch-size=1 --split-tokens=16384
@@ -95,10 +85,10 @@ curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-publ
 python -m scripts.mid_train \
     --max-seq-len=512 \
     --device-batch-size=32 \
-    --eval-every=1000 \
+    --eval-every=500 \
     --eval-tokens=524288 \
     --total-batch-size=16384 \
-    --num-iterations=-1 \
+    --num-iterations=1000 \
     --run=$WANDB_RUN
 python -m scripts.chat_eval -i mid --max-new-tokens=128 --max-problems=10
 
