@@ -4,6 +4,283 @@ A running summary documenting some experiments and findings. Started ~Jan 7 2026
 
 ---
 
+## 2026-01-27: Bigram Hash Embeddings (Engram-lite)
+
+Explored N-gram memory modules inspired by the [DeepSeek Engram paper](https://arxiv.org/abs/2601.07372) and [modded-nanogpt PR #201](https://github.com/KellerJordan/modded-nanogpt/pull/201).
+
+### Background
+
+The Engram paper introduces "conditional memory" as a complement to MoE - using O(1) hash lookups to retrieve static N-gram patterns instead of reconstructing them through computation. Key insight: transformers waste early layers "simulating retrieval through computation" for patterns like named entities and formulaic phrases that could be simple table lookups.
+
+### What We Tried
+
+**1. Full Engram module with context-aware gating (paper design)**
+```python
+# Hash bigrams to retrieve embeddings, then gate with hidden state
+e = embed(hash(prev_token, curr_token))
+q = RMSNorm(h)           # hidden state as query
+k = RMSNorm(W_k @ e)     # projected embedding as key
+v = W_v @ e
+α = sigmoid(q · k / √d)  # scalar gate per position
+output = α * v
+```
+- Injected after block 1 (paper found early injection optimal)
+- Slight improvement, but quite a bit of complexity added.
+
+**2. Early-layer only injection**
+- Only inject bigram signal in first 4 layers (where paper claims static pattern offloading helps most)
+- **Result:** Actually hurt performance. The model seems to need uniform injection across all layers.
+
+**3. Trigrams**
+- Extended to hash both 2-grams and 3-grams, concatenating embeddings
+- **Result:** No improvement over bigrams alone. Dilutes capacity from more frequent 2-gram patterns.
+
+**4. Bigram-only with x0-style injection (modded-nanogpt engram-lite approach)**
+- Simple hash: `(36313 * curr) XOR (27191 * prev) mod table_size`
+- Zero-init embedding table, learned per-layer lambdas
+- Add to residual at every layer: `x = resid_λ[i]*x + x0_λ[i]*x0 + bigram_λ[i]*x0_bigram`
+- **Result:** This simple approach works and provides a consistent improvement.
+
+TLDR The winning approach follows modded-nanogpt's "engram-lite", simply adding the following module and feeding its output into the residual branch (gated by a per-layer learnable \lambda) before every single block:
+
+```python
+class BigramEmbed(nn.Module):
+    def __init__(self, vocab_size, embed_dim, table_multiplier=5):
+        self.embed = nn.Embedding(vocab_size * table_multiplier, embed_dim)
+
+    def forward(self, idx):
+        h = (36313 * idx[:, 1:]) ^ (27191 * idx[:, :-1]) % (table_size - 1)
+        return self.embed(h)
+```
+
+As for optimal hyperparameters:
+
+- **Table size:** `vocab_size * 5` (~164K entries for 32K vocab). Swept a number of settings and 5 was optimal.
+- **Injection:** Every layer via learned `bigram_lambdas` (init 0.1 was better than 0.0).
+- **Normalization:** Also tried adding a `norm()` to the embeddings (mirroring the token embeddings), this was slightly worse.
+- **Init:** Zero-init embedding, so starts as identity (tried small noisy init, it's worse)
+- **Optimizer:** AdamW with same LR as token embeddings
+
+### Key Learnings
+
+1. **Gating didn't help at our scale.** The paper's context-aware gating mechanism (sigmoid dot-product gate) added parameters and complexity without improvement. modded-nanogpt found the same: "simple direct addition to the residual stream outperformed by a decent margin."
+
+2. **Uniform injection beats early-only.** Despite the paper's finding that early layers benefit most, restricting injection to early layers hurt. The x0-style "add everywhere with learned lambda" pattern works better for our architecture/scale.
+
+3. **Bigrams are sufficient.** Trigrams didn't help - the extra context doesn't pay for the diluted capacity.
+
+4. **Scale matters.** The Engram paper's results are at 27B params with MoE. At our ~100M-1B scale, the simpler approach wins. The elaborate gating mechanism may become useful at larger scales where collision handling matters more.
+
+### Parameters Added
+
+For d12 model with `table_multiplier=5`:
+- Bigram embedding: 32768 × 5 × 768 = ~126M params
+- Per-layer lambdas: 12 scalars (negligible)
+
+If you're keeping track, we now have *a lot* of parameters, a significant amount of them in embeddings (token embeddings, bigram embeddings, value embeddings). For example, for a d12 we now have:
+
+```
+Parameter counts:
+wte                     : 25,165,824
+bigram_embed            : 125,829,120
+value_embeds            : 150,994,944
+lm_head                 : 25,165,824
+transformer_matrices    : 84,935,808
+scalars                 : 36
+total                   : 412,091,556
+```
+
+In other words, only about a quarter of parameters are now weight projections and the vast majority is embedding tables.
+
+Still, on all axes (steps, wall clock time, flops), this somewhat parameter-bloated architecture beats the baseline and will now become the default.
+
+After adding the engram-lite, I re-ran the scaling laws to determine the new optimal tokens:params ratio. I swept FLOPs in the range 1e18..1e19, exponentially strided in 4 settings (1e18, 2e18, 5e18, 1e19). I looked at a number of ways of determining the effective parameter count for the purposes of the scaling laws. The results looked like this:
+
+```
+Kaplan-style (all projections including lm_head and no embeddings)
+
+Optimal configurations (from quadratic fits):
+FLOPs        Eff Params      Tokens          Ratio      Val BPB
+-----------------------------------------------------------------
+1e+18        110,678,115     1,241,505,403   11.2       0.8972
+2e+18        167,797,457     1,785,336,422   10.7       0.8616
+5e+18        250,650,865     2,642,234,152   10.8       0.8293
+1e+19        381,758,347     3,806,871,243   10.3       0.7999
+
+N \propto C^0.54, D \propto C^0.49
+
+Chinchilla-style (all parameters, period.)
+
+Optimal configurations (from quadratic fits):
+FLOPs        Eff Params      Tokens          Ratio      Val BPB
+-----------------------------------------------------------------
+1e+18        416,320,605     1,232,157,011   3.0        0.8974
+2e+18        560,239,841     1,763,669,281   3.2        0.8616
+5e+18        741,495,903     2,629,909,368   3.6        0.8291
+1e+19        988,644,331     3,884,841,895   4.0        0.7999
+
+N \propto C^0.37, D \propto C^0.50
+
+Transformer-only-style (only the projections inside the transformer)
+
+Optimal configurations (from quadratic fits):
+FLOPs        Eff Params      Tokens          Ratio      Val BPB
+-----------------------------------------------------------------
+1e+18        80,259,665      1,315,639,547   17.2       0.8966
+2e+18        131,488,566     1,864,134,141   14.5       0.8622
+5e+18        220,985,474     2,595,328,843   12.1       0.8302
+1e+19        401,213,504     3,328,704,512   8.5        0.7994
+
+N \propto C^0.70, D \propto C^0.41
+```
+
+Clearly, the Kaplan-style ratios are most consistent and produce stable ~0.5 exponents for both params and tokens, meaning we can have a single fixed ratio of tokens:params for compute optimal models. This turns out to be about ~10.5, which now becomes the new default.
+
+---
+
+## 2026-01-19 to 2026-01-22: Optimizer Hyperparameter Sweep
+
+Ran ~320 experiments across 6 rounds, scaling from d12→d16→d20 to find optimal optimizer hyperparameters. Added granular per-component control to `setup_optimizers()` — separate LRs and betas for embedding, unembedding, value_embeds, resid_lambdas, x0_lambdas, and Muon matrix params.
+
+### What We Swept
+- Learning rates for all 6 parameter groups
+- Beta1/beta2 for all 5 AdamW groups
+- Muon momentum (start/end), weight decay
+- Hundreds of combinations (2-way, 3-way, 4-way, etc.)
+
+### The Journey
+
+**At d12**, found two independent improvement routes:
+- **Route A:** emb_lr↑ (0.3→0.4), weight_decay↑ (0.1→0.15), matrix_lr↑ (0.02→0.025)
+- **Route B:** x0_lr↓ (0.5→0.2), x0_beta1↑ (0.8→0.9+)
+
+Both gave ~0.002 improvement, but combining them caused conflicts. Fine-tuning found wd=0.13, matrix_lr=0.027, emb_lr=0.38 helped slightly. Best d12 config: Route A + x0_beta1=0.95.
+
+**At d16**, Route B became competitive with Route A. The routes still conflicted when combined.
+
+**At d20** (target scale), everything changed:
+- Fine-tuned values from d12 **actively hurt** performance
+- Routes no longer conflicted
+- Just `x0_beta1=0.96` alone captured nearly all the gains
+
+### Final x0_beta1 Sweep at d20
+
+| x0_beta1 | val/bpb | Δ vs baseline |
+|----------|---------|---------------|
+| **0.96** | **0.7971** | **-0.0007** |
+| 0.94 | 0.7972 | -0.0006 |
+| 0.90 | 0.7972 | -0.0006 |
+| 0.97 | 0.7977 | -0.0001 |
+| 0.98 | 0.8011 | +0.0033 💀 |
+
+Flat plateau from 0.90-0.96, then sharp cliff at 0.97+.
+
+### Key Learnings
+
+1. **Hyperparameters are scale-dependent.** What works at d12 doesn't transfer to d20. The elaborate fine-tuning that won at d12 actively hurts at d20.
+
+2. **Improvement magnitude shrinks with scale.** ~0.002 at d12 → ~0.0007 at d20. The baseline is already better-tuned for larger models.
+
+3. **Sharp cliffs exist.** x0_beta1=0.98 is catastrophic while 0.96 is optimal.
+
+4. **Don't over-tune on small proxies.** Validate at target scale before shipping.
+
+### Final Recommendation
+
+For production d20 runs, add one flag:
+```
+--x0-lambdas-beta1=0.96
+```
+
+Skip everything else discovered at smaller scales.
+
+---
+
+## 2026-01-18: More various experiments
+
+- Tried Muon custom kernels for XXT and all the others. The improvement was there for targeted tests (~20%) but washed out completely to noise in an actual training run, especially because the Muon compute is split across all the workers. Abandoned due to complexity bloat.
+- Fuse Q,K,V,O nn.Linear layers into a single QKVO Linear layer. ~Zero impact
+- Tried the `sa_lambdas` that gate QKV and O. Slightly confused because of the use of rmsnorm, which erases the effect of any scalar multiplier. Helped a tiny bit (~1e-4 of loss), abandoned to control complexity.
+
+---
+
+## 2026-01-17: Various experiments
+
+Modded-nanogpt uses [Value Embeddings](https://arxiv.org/abs/2410.17897) (VEs) in a funny U-shaped structure, 3 of them in total and with gates. I tried a large number of tweaks on this today:
+
+- VEs at every layer, at alternating layers, U shaped, front and back. Alternating layers worked best, i.e. we end up with *a lot* more VEs than modded-nanogpt, at every other layer. It works better.
+- Many parameters sharing ideas to reduce new parameter count, nothing here worked. All failed.
+- Many ideas to reduce parameter count, the LLM hates all of them: low rank decompositions, projections. All failed.
+- Gated yes or no and how much. Gate helps.
+
+Long story short is that the models *love* Value Embeddings. It is a way to add a huge amount of capacity (parameters) to the model at almost zero cost of FLOPs, because these embeddings are simply added to the Values tensor. Any attempt to reduce the capacity of value embeddings (param sharing, low rank, projections) fail. The model wants many of them, and with all the capacity, and doing so wins across all x axes of steps, flops and wall clock. I re-ran the scaling laws and, because the models are now very parameter bloated, the optimal ratio has halved from 8 to 4! Way down lower than Chinchilla's 20 at this point.
+
+Other experiments, looking at val/bpb as a function of all of steps, flops and wall clock time:
+
+- Aspect ratio of 128 is worse than 64, I tried a sweep fixing FLOPs == 1e18 and 64 outperforms. The LLM prefers to be slightly thinner and longer.
+- Head dim definitely prefers to be 128 instead of 64, i.e. fewer bigger heads
+- Bunch of other random stuff like that.
+
+Keeping all of this work on a private branch for now but hope to push shortly.
+
+---
+
+## 2026-01-17: Modded-nanogpt Ideas Sweep (Continued)
+
+Continued testing ideas from modded-nanogpt.
+
+| Idea | Result | Notes |
+|------|--------|-------|
+| Attention gates | No improvement | Per-head learnable gates on attention output. +1GB memory, decreased efficiency. |
+| Batch size schedule | Abandoned | 8→16→24 with LR scaling. Made training script too bloated/complex, not worth cognitive overhead. |
+| Value embeddings | Helps a lot | Experiments still ongoing, more on this later. |
+
+---
+
+## 2026-01-16: Flash Attention 3 Fallback to SDPA
+
+Added automatic fallback from Flash Attention 3 to PyTorch's `scaled_dot_product_attention` (SDPA) for users without Hopper GPUs. This enables nanochat to run on older CUDA GPUs, CPU, and MPS (Apple Silicon).
+
+### Implementation
+
+Created `nanochat/flash_attention.py` - a unified interface that:
+- Detects FA3 availability at import time (requires sm90+ / Hopper)
+- Exports a `flash_attn` object matching FA3's API exactly (`flash_attn.flash_attn_func`, `flash_attn.flash_attn_with_kvcache`)
+- Automatically routes to FA3 or SDPA based on hardware
+- Handles tensor layout differences: FA3 uses (B, T, H, D), SDPA uses (B, H, T, D)
+- Implements sliding window attention via explicit masks for SDPA
+- Manages KV cache manually for SDPA (FA3 does it in-place)
+
+### Changes to Existing Files
+
+Changes to existing code were intentionally kept extremely minimal.
+
+**gpt.py**: Only the import line changed and a comment
+
+**engine.py**: Zero changes needed
+
+**base_train.py**: Added status print and warnings:
+- Prints whether FA3 or SDPA fallback is being used
+- Warns about efficiency loss without FA3
+- Warns about sliding window support if `--window-pattern` is not "L"
+
+### Testing
+
+Tests are split into two classes due to dtype/device constraints:
+
+1. **TestFA3VsSDPA**: Comparison tests requiring Hopper GPU + bfloat16. Run both implementations on identical inputs and verify outputs match (max diff typically 0, at most ~0.004 for sliding window).
+
+2. **TestSDPAOnly**: SDPA-only tests that run on any device with appropriate dtype. Verify forward pass, backward pass, and KV cache work correctly.
+
+Added `_override_impl` mechanism for testing - can force 'fa3' or 'sdpa' to directly compare implementations.
+
+### Notes
+
+- SDPA fallback is significantly slower than FA3 especially in that it lacks the sliding window attention support
+- Recommend `--window-pattern L` (full context) when using SDPA fallback
+
+---
+
 ## 2026-01-16: Modded-nanogpt Ideas Sweep (Mostly Negative)
 
 Tested several architectural ideas from modded-nanogpt to see if they transfer to nanochat. All of these did not help:
