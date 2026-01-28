@@ -44,6 +44,11 @@ def eval_with_timeout(formula, max_time=3):
         # print(f"Warning: Failed to eval {formula}, exception: {e}") # it's ok ignore wrong calculator usage
         return None
 
+def eval_without_timeout(formula):
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", SyntaxWarning)
+        return eval(formula, {"__builtins__": {}}, {})
+
 def use_calculator(expr):
     """
     Evaluate a Python expression safely.
@@ -56,7 +61,7 @@ def use_calculator(expr):
     if all([x in "0123456789*+-/.() " for x in expr]):
         if "**" in expr:  # disallow power operator
             return None
-        return eval_with_timeout(expr)
+        return eval_without_timeout(expr)
 
     # Check if it's a string operation we support
     # Allow: strings (single/double quotes), .count(), letters, numbers, spaces, parens
@@ -77,7 +82,7 @@ def use_calculator(expr):
         return None
 
     # Evaluate with timeout
-    return eval_with_timeout(expr)
+    return eval_without_timeout(expr)
 
 # -----------------------------------------------------------------------------
 class KVCache:
