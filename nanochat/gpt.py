@@ -257,6 +257,25 @@ class GPT(nn.Module):
         cos, sin = cos[None, :, None, :], sin[None, :, None, :] # add batch and head dims for later broadcasting
         return cos, sin
 
+    def _ensure_rotary_embeddings(self, total_seq_len_needed):
+        """
+        Grow the cached rotary embeddings if we ever need more than currently precomputed.
+
+        This is called at runtime (never on meta device), so we can safely allocate
+        real tensors here. We grow geometrically to avoid frequent reallocations.
+        """
+        current_len = self.cos.size(1)
+        if total_seq_len_needed <= current_len:
+            return
+        # Grow geometrically to keep number of reallocations small
+        new_len = current_len
+        while new_len < total_seq_len_needed:
+            new_len *= 2
+        head_dim = self.config.n_embd // self.config.n_head
+        cos, sin = self._precompute_rotary_embeddings(new_len, head_dim, device=self.cos.device)
+        self.rotary_seq_len = new_len
+        self.cos, self.sin = cos, sin
+
     def _compute_window_sizes(self, config):
         """
         Compute per-layer window sizes for sliding window attention.
@@ -389,11 +408,13 @@ class GPT(nn.Module):
         B, T = idx.size()
 
         # Grab the rotary embeddings for the current sequence length (they are of shape (1, seq_len, 1, head_dim/2))
-        assert T <= self.cos.size(1), f"Sequence length grew beyond the rotary embeddings cache: {T} > {self.cos.size(1)}"
+        # If the effective sequence length ever grows beyond the precomputed rotary cache,
+        # dynamically grow it instead of asserting.
+        T0 = 0 if kv_cache is None else kv_cache.get_pos()
+        self._ensure_rotary_embeddings(T0 + T)
         assert idx.device == self.cos.device, f"Rotary embeddings and idx are on different devices: {idx.device} != {self.cos.device}"
         assert self.cos.dtype == torch.bfloat16, "Rotary embeddings must be in bfloat16"
         # if kv cache exists, we need to offset the rotary embeddings to the current position in the cache
-        T0 = 0 if kv_cache is None else kv_cache.get_pos()
         cos_sin = self.cos[:, T0:T0+T], self.sin[:, T0:T0+T] # truncate cache to current sequence length
 
         # Forward the trunk of the Transformer
