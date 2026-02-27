@@ -59,9 +59,9 @@ python -m scripts.tok_eval
 echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
-python -m scripts.base_train -- --depth=12 --target-param-data-ratio=8.25 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
+python -m scripts.base_train --depth=12 --target-param-data-ratio=8.25 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
-python -m scripts.base_eval -- --device-batch-size=16
+python -m scripts.base_eval --device-batch-size=16
 
 # -----------------------------------------------------------------------------
 # SFT (teach the model conversation special tokens, tool use, multiple choice)
@@ -71,8 +71,8 @@ python -m scripts.base_eval -- --device-batch-size=16
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run SFT and eval the model
-python -m scripts.chat_sft -- --device-batch-size=16 --run=$WANDB_RUN
-python -m scripts.chat_eval -- -i sft
+python -m scripts.chat_sft --device-batch-size=16 --run=$WANDB_RUN
+python -m scripts.chat_eval -i sft
 
 # chat with the model over CLI! Leave out the -p to chat interactively
 # python -m scripts.chat_cli -p "Why is the sky blue?"
