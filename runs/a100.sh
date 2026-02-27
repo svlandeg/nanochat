@@ -15,6 +15,8 @@ export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
+WANDB_RUN=d12_sandbox
+
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
 
@@ -26,18 +28,6 @@ command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --extra gpu
 # activate venv so that `python` uses the project's venv instead of system python
 source .venv/bin/activate
-
-# -----------------------------------------------------------------------------
-# wandb setup
-# If you wish to use wandb for logging (it's nice!, recommended).
-# 1) Make sure to first log in to wandb, e.g. run:
-#    `wandb login`
-# 2) Set the WANDB_RUN environment variable when running this script, e.g.:
-#    `WANDB_RUN=d26 bash speedrun.sh`
-if [ -z "$WANDB_RUN" ]; then
-    # by default use "dummy" : it's handled as a special case, skips logging to wandb
-    WANDB_RUN=dummy
-fi
 
 # -----------------------------------------------------------------------------
 # During the course of the run, we will be writing markdown reports to the report/
@@ -69,10 +59,9 @@ python -m scripts.tok_eval
 echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
-# d26 model (slightly undertrained to beat GPT-2 => decrease data:params ratio from compute optimal 10.5 (default) to 8.25)
-torchrun --standalone --nproc_per_node=1 -m scripts.base_train -- --depth=12 --target-param-data-ratio=8.25 --device-batch-size=16 --run=$WANDB_RUN
+python -m scripts.base_train -- --depth=12 --target-param-data-ratio=8.25 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
-torchrun --standalone --nproc_per_node=1 -m scripts.base_eval -- --device-batch-size=16
+python -m scripts.base_eval -- --device-batch-size=16
 
 # -----------------------------------------------------------------------------
 # SFT (teach the model conversation special tokens, tool use, multiple choice)
@@ -82,8 +71,8 @@ torchrun --standalone --nproc_per_node=1 -m scripts.base_eval -- --device-batch-
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
 
 # run SFT and eval the model
-torchrun --standalone --nproc_per_node=1 -m scripts.chat_sft -- --device-batch-size=16 --run=$WANDB_RUN
-torchrun --standalone --nproc_per_node=1 -m scripts.chat_eval -- -i sft
+python -m scripts.chat_sft -- --device-batch-size=16 --run=$WANDB_RUN
+python -m scripts.chat_eval -- -i sft
 
 # chat with the model over CLI! Leave out the -p to chat interactively
 # python -m scripts.chat_cli -p "Why is the sky blue?"
