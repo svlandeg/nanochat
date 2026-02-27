@@ -15,7 +15,7 @@ export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
-WANDB_RUN=d12_sandbox
+WANDB_RUN=a100_run2_d16
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
@@ -59,7 +59,7 @@ python -m scripts.tok_eval
 echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
-python -m scripts.base_train --depth=12 --target-param-data-ratio=8.25 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
+python -m scripts.base_train --depth=16 --target-param-data-ratio=8.25 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
 python -m scripts.base_eval --device-batch-size=16
 
