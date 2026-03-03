@@ -15,7 +15,7 @@ export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
-WANDB_RUN=a100_run4_d18
+WANDB_RUN=a100_run6_d18
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
