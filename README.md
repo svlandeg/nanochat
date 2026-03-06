@@ -82,6 +82,27 @@ The important thing to note is that nanochat is written and configured around on
 
 The script [runs/runcpu.sh](runs/runcpu.sh) shows a very simple example of running on CPU or Apple Silicon. It dramatically shrinks the LLM that is being trained to make things fit into a reasonable time interval of a few ten minutes of training. You will not get strong results in this way.
 
+## Precision / dtype
+
+nanochat does not use `torch.amp.autocast`. Instead, precision is managed explicitly through a single global `COMPUTE_DTYPE` (defined in `nanochat/common.py`). By default this is auto-detected based on your hardware:
+
+| Hardware | Default dtype | Why |
+|----------|--------------|-----|
+| CUDA SM 80+ (A100, H100, ...) | `bfloat16` | Native bf16 tensor cores |
+| CUDA SM < 80 (V100, T4, ...) | `float32` | No bf16; fp16 available via `NANOCHAT_DTYPE=float16` (uses GradScaler) |
+| CPU / MPS | `float32` | No reduced-precision tensor cores |
+
+You can override the default with the `NANOCHAT_DTYPE` environment variable:
+
+```bash
+NANOCHAT_DTYPE=float32 python -m scripts.chat_cli -p "hello"   # force fp32
+NANOCHAT_DTYPE=bfloat16 torchrun --nproc_per_node=8 -m scripts.base_train  # force bf16
+```
+
+How it works: model weights are stored in fp32 (for optimizer precision), but our custom `Linear` layer casts them to `COMPUTE_DTYPE` during the forward pass. Embeddings are stored directly in `COMPUTE_DTYPE` to save memory. This gives us the same mixed-precision benefit as autocast but with full explicit control over what runs in which precision.
+
+Note: `float16` training automatically enables a `GradScaler` in `base_train.py` to prevent gradient underflow. SFT suppors this too but RL currently does not. Inference in fp16 works fine everywhere.
+
 ## Guides
 
 I've published a number of guides that might contain helpful information, most recent to least recent:
