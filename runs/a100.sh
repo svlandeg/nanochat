@@ -15,7 +15,7 @@ export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
-WANDB_RUN=a100_run7_d18_climbmix
+WANDB_RUN=a100_run8_d18
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
@@ -44,10 +44,7 @@ python -m nanochat.report reset
 # each shard is ~100MB of text (compressed), so this is about ~800MB of data on disk
 # look at dev/repackage_data_reference.py for details on how this data was prepared
 python -m nanochat.dataset -n 8
-# Immediately also kick off downloading more shards in the background while tokenizer trains
-# Approximately 350 shards are needed for 10B tokens of data for pretraining.
-# The maximum total number of shards available in the entire dataset is 1822.
-python -m nanochat.dataset -n 370 &
+python -m nanochat.dataset -n 170 &
 DATASET_DOWNLOAD_PID=$!
 # train the tokenizer with vocab size 2**15 = 32768 on ~2B characters of data
 python -m scripts.tok_train
@@ -59,7 +56,7 @@ python -m scripts.tok_eval
 echo "Waiting for dataset download to complete..."
 wait $DATASET_DOWNLOAD_PID
 
-python -m scripts.base_train --depth=18 --target-param-data-ratio=8.25 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
+python -m scripts.base_train --depth=18 --target-param-data-ratio=9.5 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
 python -m scripts.base_eval --device-batch-size=16
 
