@@ -250,7 +250,7 @@ class SUMOAdamW(torch.optim.Optimizer):
             recompute_q = ("Q" not in state) or (state["step"] % update_freq == 1)
             if recompute_q:
                 try:
-                    U, _, _ = torch.linalg.svd(grad, full_m=False)
+                    U, _, _ = torch.linalg.svd(grad, full_matrices=False)
                     state["Q"] = U[:, :eff_rank].to(dtype=grad.dtype, device=grad.device)
                 except RuntimeError:
                     # If SVD fails and no previous Q, fall back to gradient descent
@@ -273,7 +273,7 @@ class SUMOAdamW(torch.optim.Optimizer):
 
             # Exact orthogonalization via SVD: O = U V^T
             try:
-                U_m, _, Vh_m = torch.linalg.svd(M, full_m=False)
+                U_m, _, Vh_m = torch.linalg.svd(M, full_matrices=False)
                 O = (U_m @ Vh_m).to(dtype=M.dtype)
             except RuntimeError:
                 O = M
@@ -404,7 +404,7 @@ class DistSUMOAdamW(torch.optim.Optimizer):
             recompute_q = ("Q" not in state) or (state["step"] % update_freq == 1)
             if recompute_q:
                 try:
-                    U, _, _ = torch.linalg.svd(grad, full_m=False)
+                    U, _, _ = torch.linalg.svd(grad, full_matrices=False)
                     state["Q"] = U[:, :eff_rank].to(dtype=grad.dtype, device=grad.device)
                 except RuntimeError:
                     if "Q" not in state:
@@ -423,7 +423,7 @@ class DistSUMOAdamW(torch.optim.Optimizer):
             M.mul_(beta).add_(G_hat, alpha=(1.0 - beta))
 
             try:
-                U_m, _, Vh_m = torch.linalg.svd(M, full_m=False)
+                U_m, _, Vh_m = torch.linalg.svd(M, full_matrices=False)
                 O = (U_m @ Vh_m).to(dtype=M.dtype)
             except RuntimeError:
                 O = M
