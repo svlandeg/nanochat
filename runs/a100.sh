@@ -15,7 +15,7 @@ export OMP_NUM_THREADS=1
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 
-WANDB_RUN=a100_run9_d18_cleandata
+WANDB_RUN=a100_run13_d18_quicker
 
 # -----------------------------------------------------------------------------
 # Python venv setup with uv
@@ -43,9 +43,9 @@ python -m nanochat.report reset
 # so we download 2e9 / 250e6 = 8 data shards at this point
 # each shard is ~100MB of text (compressed), so this is about ~800MB of data on disk
 # look at dev/repackage_data_reference.py for details on how this data was prepared
-python -m nanochat.dataset -n 8
-python -m nanochat.dataset -n 170 &
-DATASET_DOWNLOAD_PID=$!
+# python -m nanochat.dataset -n 8
+# python -m nanochat.dataset -n 170 &
+# DATASET_DOWNLOAD_PID=$!
 # train the tokenizer with vocab size 2**15 = 32768 on ~2B characters of data
 python -m scripts.tok_train
 # evaluate the tokenizer (report compression ratio etc.)
@@ -53,10 +53,10 @@ python -m scripts.tok_eval
 
 # -----------------------------------------------------------------------------
 # Base model (pretraining)
-echo "Waiting for dataset download to complete..."
-wait $DATASET_DOWNLOAD_PID
+# echo "Waiting for dataset download to complete..."
+# wait $DATASET_DOWNLOAD_PID
 
-python -m scripts.base_train --depth=18 --target-param-data-ratio=9.5 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
+python -m scripts.base_train --depth=18 --target-param-data-ratio=7.0 --device-batch-size=16 --window-pattern="L" --run=$WANDB_RUN
 # evaluate the model: CORE metric, BPB on train/val, and draw samples
 python -m scripts.base_eval --device-batch-size=16
 
