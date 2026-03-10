@@ -1,7 +1,7 @@
 """
-A nice and efficient mixed AdamW/Muon Combined Optimizer.
-Usually the embeddings and scalars go into AdamW, and the matrix parameters go into Muon.
-Two versions are provided (MuonAdamW, DistMuonAdamW), for single GPU and distributed.
+A nice and efficient mixed AdamW/Muon/SUMO Combined Optimizer.
+Usually the embeddings and scalars go into AdamW, and the matrix parameters go into Muon or SUMO.
+Two versions are provided (SUMOAdamW/DistSUMOAdamW), for single GPU and distributed.
 
 Addapted from: https://github.com/KellerJordan/modded-nanogpt
 Further contributions from @karpathy and @chrisjmccormick.
@@ -10,6 +10,7 @@ Further contributions from @karpathy and @chrisjmccormick.
 import torch
 import torch.distributed as dist
 from torch import Tensor
+import math
 
 # -----------------------------------------------------------------------------
 """
@@ -146,63 +147,44 @@ def muon_step_fused(
     stacked_params.sub_(lr * g + lr * wd * stacked_params * mask)
 
 # -----------------------------------------------------------------------------
-# Single GPU version of the MuonAdamW optimizer.
-# Used mostly for reference, debugging and testing.
+# Single GPU version of a SUMO-style optimizer (SUMOAdamW).
+# Uses fused AdamW for non-matrix params and a SUMO-like update for 2D matrices.
 
-class MuonAdamW(torch.optim.Optimizer):
+class SUMOAdamW(torch.optim.Optimizer):
     """
-    Combined optimizer: Muon for 2D matrix params, AdamW for others, single GPU version.
+    Combined optimizer: SUMO for 2D matrix params, AdamW for others (single GPU).
 
-    AdamW - Fused AdamW optimizer step.
-
-    Muon - MomentUm Orthogonalized by Newton-schulz
-    https://kellerjordan.github.io/posts/muon/
-
-    Muon internally runs standard SGD-momentum, and then performs an orthogonalization post-
-    processing step, in which each 2D parameter's update is replaced with the nearest orthogonal
-    matrix. To efficiently orthogonalize each update, we use a Newton-Schulz iteration, which has
-    the advantage that it can be stably run in bfloat16 on the GPU.
-
-    Some warnings:
-    - The Muon optimizer should not be used for the embedding layer, the final fully connected layer,
-    or any {0,1}-D parameters; those should all be optimized by a standard method (e.g., AdamW).
-    - To use it with 4D convolutional filters, it works well to just flatten their last 3 dimensions.
-
-    Arguments:
-        param_groups: List of dicts, each containing:
-            - 'params': List of parameters
-            - 'kind': 'adamw' or 'muon'
-            - For AdamW groups: 'lr', 'betas', 'eps', 'weight_decay'
-            - For Muon groups: 'lr', 'momentum', 'ns_steps', 'beta2', 'weight_decay'
+    Param group schema:
+        - 'params': list of parameters
+        - 'kind': 'adamw' or 'muon'
+        - For AdamW groups: 'lr', 'betas', 'eps', 'weight_decay'
+        - For SUMO groups (kind == 'muon'):
+            - 'lr': learning rate for matrix params
+            - 'momentum': first-moment decay β (e.g. 0.95)
+            - 'weight_decay': L2 weight decay in original space
+            - Optional:
+                - 'rank': low-rank dimension r (default: 16)
+                - 'update_freq': subspace update frequency K (default: 100)
+                - 'norm_growth_gamma': norm growth limiter γ (default: 1.1)
     """
+
     def __init__(self, param_groups: list[dict]):
         super().__init__(param_groups, defaults={})
-        # 0-D CPU tensors to avoid torch.compile recompilation when values change
-        # AdamW tensors
+        # Reuse the fused AdamW kernel helpers from above
         self._adamw_step_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_lr_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_beta1_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_beta2_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_eps_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_wd_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        # Muon tensors
-        self._muon_momentum_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_lr_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_wd_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_beta2_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
 
     def _step_adamw(self, group: dict) -> None:
-        """
-        AdamW update for each param in the group individually.
-        Lazy init the state, fill in all 0-D tensors, call the fused kernel.
-        """
         for p in group['params']:
             if p.grad is None:
                 continue
             grad = p.grad
             state = self.state[p]
 
-            # State init
             if not state:
                 state['step'] = 0
                 state['exp_avg'] = torch.zeros_like(p)
@@ -211,7 +193,6 @@ class MuonAdamW(torch.optim.Optimizer):
             exp_avg_sq = state['exp_avg_sq']
             state['step'] += 1
 
-            # Fill 0-D tensors with current values
             self._adamw_step_t.fill_(state['step'])
             self._adamw_lr_t.fill_(group['lr'])
             self._adamw_beta1_t.fill_(group['betas'][0])
@@ -219,66 +200,105 @@ class MuonAdamW(torch.optim.Optimizer):
             self._adamw_eps_t.fill_(group['eps'])
             self._adamw_wd_t.fill_(group['weight_decay'])
 
-            # Fused update: weight_decay -> momentum -> bias_correction -> param_update
             adamw_step_fused(
-                p, grad, exp_avg, exp_avg_sq,
-                self._adamw_step_t, self._adamw_lr_t, self._adamw_beta1_t,
-                self._adamw_beta2_t, self._adamw_eps_t, self._adamw_wd_t,
+                p,
+                grad,
+                exp_avg,
+                exp_avg_sq,
+                self._adamw_step_t,
+                self._adamw_lr_t,
+                self._adamw_beta1_t,
+                self._adamw_beta2_t,
+                self._adamw_eps_t,
+                self._adamw_wd_t,
             )
 
-    def _step_muon(self, group: dict) -> None:
-        """
-        Muon update for all params in the group (stacked for efficiency).
-        Lazy init the state, fill in all 0-D tensors, call the fused kernel.
-        """
+    def _step_sumo(self, group: dict) -> None:
         params: list[Tensor] = group['params']
         if not params:
             return
 
-        # Get or create group-level buffers (stored in first param's state for convenience)
-        p = params[0]
-        state = self.state[p]
-        num_params = len(params)
-        shape, device, dtype = p.shape, p.device, p.dtype
+        lr = group["lr"]
+        beta = group.get("momentum", 0.95)
+        weight_decay = group.get("weight_decay", 0.0)
+        rank = int(group.get("rank", 16))
+        update_freq = int(group.get("update_freq", 100))
+        gamma = float(group.get("norm_growth_gamma", 1.1))
 
-        # Momentum for every individual parameter
-        if "momentum_buffer" not in state:
-            state["momentum_buffer"] = torch.zeros(num_params, *shape, dtype=dtype, device=device)
-        momentum_buffer = state["momentum_buffer"]
+        for p in params:
+            grad = p.grad
+            if grad is None:
+                continue
 
-        # Second momentum buffer is factored, either per-row or per-column
-        if "second_momentum_buffer" not in state:
-            state_shape = (num_params, shape[-2], 1) if shape[-2] >= shape[-1] else (num_params, 1, shape[-1])
-            state["second_momentum_buffer"] = torch.zeros(state_shape, dtype=dtype, device=device)
-        second_momentum_buffer = state["second_momentum_buffer"]
-        red_dim = -1 if shape[-2] >= shape[-1] else -2
+            # Fallback for non-matrix params: plain SGD with weight decay
+            if grad.ndim != 2:
+                if weight_decay != 0.0:
+                    p.add_(p, alpha=-lr * weight_decay)
+                p.add_(grad, alpha=-lr)
+                continue
 
-        # Stack grads and params (NOTE: this assumes all params have the same shape)
-        stacked_grads = torch.stack([p.grad for p in params])
-        stacked_params = torch.stack(params)
+            state = self.state[p]
+            m, n = grad.shape
 
-        # Fill all the 0-D tensors with current values
-        self._muon_momentum_t.fill_(group["momentum"])
-        self._muon_beta2_t.fill_(group["beta2"] if group["beta2"] is not None else 0.0)
-        self._muon_lr_t.fill_(group["lr"] * max(1.0, shape[-2] / shape[-1])**0.5)
-        self._muon_wd_t.fill_(group["weight_decay"])
+            if "step" not in state:
+                state["step"] = 0
+            state["step"] += 1
 
-        # Single fused kernel: momentum -> polar_express -> variance_reduction -> update
-        muon_step_fused(
-            stacked_grads,
-            stacked_params,
-            momentum_buffer,
-            second_momentum_buffer,
-            self._muon_momentum_t,
-            self._muon_lr_t,
-            self._muon_wd_t,
-            self._muon_beta2_t,
-            group["ns_steps"],
-            red_dim,
-        )
+            eff_rank = max(1, min(rank, m, n))
 
-        # Copy back to original params
-        torch._foreach_copy_(params, list(stacked_params.unbind(0)))
+            # Recompute subspace Q every update_freq steps (Block 1)
+            recompute_q = ("Q" not in state) or (state["step"] % update_freq == 1)
+            if recompute_q:
+                try:
+                    U, _, _ = torch.linalg.svd(grad, full_m=False)
+                    state["Q"] = U[:, :eff_rank].to(dtype=grad.dtype, device=grad.device)
+                except RuntimeError:
+                    # If SVD fails and no previous Q, fall back to gradient descent
+                    if "Q" not in state:
+                        if weight_decay != 0.0:
+                            p.add_(p, alpha=-lr * weight_decay)
+                        p.add_(grad, alpha=-lr)
+                        continue
+
+            Q = state["Q"]
+
+            # Project gradient to subspace: G_hat = Q^T G  (Block 2)
+            G_hat = Q.transpose(-2, -1) @ grad  # (r, n)
+
+            # First-order moment in subspace: M_t = β M_{t-1} + (1-β) G_hat
+            if "M" not in state or state["M"].shape != G_hat.shape:
+                state["M"] = torch.zeros_like(G_hat)
+            M = state["M"]
+            M.mul_(beta).add_(G_hat, alpha=(1.0 - beta))
+
+            # Exact orthogonalization via SVD: O = U V^T
+            try:
+                U_m, _, Vh_m = torch.linalg.svd(M, full_m=False)
+                O = (U_m @ Vh_m).to(dtype=M.dtype)
+            except RuntimeError:
+                O = M
+
+            # Norm-growth limiter (Block 3)
+            O_norm = torch.linalg.norm(O)
+            prev_norm = state.get("O_norm", None)
+            if prev_norm is not None and prev_norm > 0 and O_norm > 0:
+                if (O_norm / prev_norm) > gamma:
+                    O.mul_(gamma * prev_norm / (O_norm + 1e-8))
+            state["O_norm"] = float(O_norm.item())
+
+            # Full-space update (Block 4): ΔW = G - Q ( G_hat - O )
+            delta = grad - Q @ (G_hat - O)
+
+            # Shape-aware scaling (implicit layer-wise LR adaptation)
+            scale = math.sqrt(float(max(m, n)))
+            delta = delta / scale
+
+            # Weight decay in original space
+            if weight_decay != 0.0:
+                p.add_(p, alpha=-lr * weight_decay)
+
+            # Parameter update
+            p.add_(delta, alpha=-lr)
 
     @torch.no_grad()
     def step(self):
@@ -286,7 +306,8 @@ class MuonAdamW(torch.optim.Optimizer):
             if group['kind'] == 'adamw':
                 self._step_adamw(group)
             elif group['kind'] == 'muon':
-                self._step_muon(group)
+                # Reuse 'muon' kind for matrix groups, but apply SUMO logic
+                self._step_sumo(group)
             else:
                 raise ValueError(f"Unknown optimizer kind: {group['kind']}")
 
@@ -294,240 +315,153 @@ class MuonAdamW(torch.optim.Optimizer):
 # Distributed version of the MuonAdamW optimizer.
 # Used for training on multiple GPUs.
 
-class DistMuonAdamW(torch.optim.Optimizer):
+class DistSUMOAdamW(torch.optim.Optimizer):
     """
-    Combined distributed optimizer: Muon for 2D matrix params, AdamW for others.
+    Distributed optimizer: SUMO-style updates for 2D matrix params, fused AdamW for others.
 
-    See MuonAdamW for the algorithmic details of each optimizer. This class adds
-    distributed communication to enable multi-GPU training without PyTorch DDP.
-
-    Design Goals:
-    - Overlap communication with computation (async ops)
-    - Minimize memory by sharding optimizer states across ranks (ZeRO-2 style)
-    - Batch small tensors into single comm ops where possible
-
-    Communication Pattern (3-phase async):
-    We use a 3-phase structure to maximize overlap between communication and compute:
-
-        Phase 1: Launch all async reduce ops
-            - Kick off all reduce_scatter/all_reduce operations
-            - Don't wait - let them run in background while we continue
-
-        Phase 2: Wait for reduces, compute updates, launch gathers
-            - For each group: wait for its reduce, compute the update, launch gather
-            - By processing groups in order, earlier gathers run while later computes happen
-
-        Phase 3: Wait for gathers, copy back
-            - Wait for all gathers to complete
-            - Copy updated params back to original tensors (Muon only)
-
-    AdamW Communication (ZeRO-2 style):
-    - Small params (<1024 elements): all_reduce gradients, update full param on each rank.
-      Optimizer state is replicated but these params are tiny (scalars, biases).
-    - Large params: reduce_scatter gradients so each rank gets 1/N of the grad, update
-      only that slice, then all_gather the updated slices. Optimizer state (exp_avg,
-      exp_avg_sq) is sharded - each rank only stores state for its slice.
-      Requires param.shape[0] divisible by world_size.
-
-    Muon Communication (stacked + chunked):
-    - All params in a Muon group must have the same shape (caller's responsibility).
-    - Stack all K params into a single (K, *shape) tensor for efficient comm.
-    - Divide K params across N ranks: each rank "owns" ceil(K/N) params.
-    - reduce_scatter the stacked grads so each rank gets its chunk.
-    - Each rank computes Muon update only for params it owns.
-    - all_gather the updated params back to all ranks.
-    - Optimizer state (momentum_buffer, second_momentum_buffer) is sharded by chunk.
-    - Padding: if K doesn't divide evenly, we zero-pad to (ceil(K/N) * N) for comm,
-      then ignore the padding when copying back.
-
-    Buffer Reuse:
-    - For Muon, we allocate stacked_grads for reduce_scatter input, then reuse the
-      same buffer as the output for all_gather (stacked_params). This saves memory
-      since we don't need both buffers simultaneously.
-
-    Arguments:
-        param_groups: List of dicts, each containing:
-            - 'params': List of parameters
-            - 'kind': 'adamw' or 'muon'
-            - For AdamW groups: 'lr', 'betas', 'eps', 'weight_decay'
-            - For Muon groups: 'lr', 'momentum', 'ns_steps', 'beta2', 'weight_decay'
+    This simplified version uses gradient all-reduce across ranks for each parameter:
+      - For 'adamw' groups: all-reduce grads then apply fused AdamW as in MuonAdamW.
+      - For 'muon' groups: all-reduce grads then apply the same SUMO-style update
+        used in SUMOAdamW (low-rank moment orthogonalization via SVD).
     """
+
     def __init__(self, param_groups: list[dict]):
         super().__init__(param_groups, defaults={})
-        # 0-D CPU tensors to avoid torch.compile recompilation when values change
         self._adamw_step_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_lr_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_beta1_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_beta2_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_eps_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
         self._adamw_wd_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_momentum_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_lr_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_wd_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
-        self._muon_beta2_t = torch.tensor(0.0, dtype=torch.float32, device="cpu")
 
-    def _reduce_adamw(self, group: dict, world_size: int) -> dict:
-        """Launch async reduce ops for AdamW group. Returns info dict with per-param infos."""
-        param_infos = {}
+    def _step_adamw(self, group: dict) -> None:
         for p in group['params']:
+            if p.grad is None:
+                continue
             grad = p.grad
-            if p.numel() < 1024:
-                # Small params: all_reduce (no scatter/gather needed)
-                future = dist.all_reduce(grad, op=dist.ReduceOp.AVG, async_op=True).get_future()
-                param_infos[p] = dict(future=future, grad_slice=grad, is_small=True)
-            else:
-                # Large params: reduce_scatter
-                assert grad.shape[0] % world_size == 0, f"AdamW reduce_scatter requires shape[0] ({grad.shape[0]}) divisible by world_size ({world_size})"
-                rank_size = grad.shape[0] // world_size
-                grad_slice = torch.empty_like(grad[:rank_size])
-                future = dist.reduce_scatter_tensor(grad_slice, grad, op=dist.ReduceOp.AVG, async_op=True).get_future()
-                param_infos[p] = dict(future=future, grad_slice=grad_slice, is_small=False)
-        return dict(param_infos=param_infos)
-
-    def _reduce_muon(self, group: dict, world_size: int) -> dict:
-        """Launch async reduce op for Muon group. Returns info dict."""
-        params = group['params']
-        chunk_size = (len(params) + world_size - 1) // world_size
-        padded_num_params = chunk_size * world_size
-        p = params[0]
-        shape, device, dtype = p.shape, p.device, p.dtype
-
-        # Stack grads and zero-pad to padded_num_params
-        grad_stack = torch.stack([p.grad for p in params])
-        stacked_grads = torch.empty(padded_num_params, *shape, dtype=dtype, device=device)
-        stacked_grads[:len(params)].copy_(grad_stack)
-        if len(params) < padded_num_params:
-            stacked_grads[len(params):].zero_()
-
-        # Reduce_scatter to get this rank's chunk
-        grad_chunk = torch.empty(chunk_size, *shape, dtype=dtype, device=device)
-        future = dist.reduce_scatter_tensor(grad_chunk, stacked_grads, op=dist.ReduceOp.AVG, async_op=True).get_future()
-
-        return dict(future=future, grad_chunk=grad_chunk, stacked_grads=stacked_grads, chunk_size=chunk_size)
-
-    def _compute_adamw(self, group: dict, info: dict, gather_list: list, rank: int, world_size: int) -> None:
-        """Wait for reduce, compute AdamW updates, launch gathers for large params."""
-        param_infos = info['param_infos']
-        for p in group['params']:
-            pinfo = param_infos[p]
-            pinfo['future'].wait()
-            grad_slice = pinfo['grad_slice']
             state = self.state[p]
 
-            # For small params, operate on full param; for large, operate on slice
-            if pinfo['is_small']:
-                p_slice = p
-            else:
-                rank_size = p.shape[0] // world_size
-                p_slice = p[rank * rank_size:(rank + 1) * rank_size]
-
-            # State init
             if not state:
                 state['step'] = 0
-                state['exp_avg'] = torch.zeros_like(p_slice)
-                state['exp_avg_sq'] = torch.zeros_like(p_slice)
+                state['exp_avg'] = torch.zeros_like(p)
+                state['exp_avg_sq'] = torch.zeros_like(p)
+            exp_avg = state['exp_avg']
+            exp_avg_sq = state['exp_avg_sq']
             state['step'] += 1
 
-            # Fill 0-D tensors and run fused kernel
             self._adamw_step_t.fill_(state['step'])
             self._adamw_lr_t.fill_(group['lr'])
             self._adamw_beta1_t.fill_(group['betas'][0])
             self._adamw_beta2_t.fill_(group['betas'][1])
             self._adamw_eps_t.fill_(group['eps'])
             self._adamw_wd_t.fill_(group['weight_decay'])
+
             adamw_step_fused(
-                p_slice, grad_slice, state['exp_avg'], state['exp_avg_sq'],
-                self._adamw_step_t, self._adamw_lr_t, self._adamw_beta1_t,
-                self._adamw_beta2_t, self._adamw_eps_t, self._adamw_wd_t,
+                p,
+                grad,
+                exp_avg,
+                exp_avg_sq,
+                self._adamw_step_t,
+                self._adamw_lr_t,
+                self._adamw_beta1_t,
+                self._adamw_beta2_t,
+                self._adamw_eps_t,
+                self._adamw_wd_t,
             )
 
-            # Large params need all_gather
-            if not pinfo['is_small']:
-                future = dist.all_gather_into_tensor(p, p_slice, async_op=True).get_future()
-                gather_list.append(dict(future=future, params=None))
+    def _step_sumo(self, group: dict) -> None:
+        params: list[Tensor] = group['params']
+        if not params:
+            return
 
-    def _compute_muon(self, group: dict, info: dict, gather_list: list, rank: int) -> None:
-        """Wait for reduce, compute Muon updates, launch gather."""
-        info['future'].wait()
-        params = group['params']
-        chunk_size = info['chunk_size']
-        grad_chunk = info['grad_chunk']
-        p = params[0]
-        shape, device, dtype = p.shape, p.device, p.dtype
+        lr = group["lr"]
+        beta = group.get("momentum", 0.95)
+        weight_decay = group.get("weight_decay", 0.0)
+        rank = int(group.get("rank", 16))
+        update_freq = int(group.get("update_freq", 100))
+        gamma = float(group.get("norm_growth_gamma", 1.1))
 
-        # How many params does this rank own?
-        start_idx = rank * chunk_size
-        num_owned = min(chunk_size, max(0, len(params) - start_idx))
+        for p in params:
+            grad = p.grad
+            if grad is None:
+                continue
 
-        # Get or create group-level state
-        state = self.state[p]
-        if "momentum_buffer" not in state:
-            state["momentum_buffer"] = torch.zeros(chunk_size, *shape, dtype=dtype, device=device)
-        if "second_momentum_buffer" not in state:
-            state_shape = (chunk_size, shape[-2], 1) if shape[-2] >= shape[-1] else (chunk_size, 1, shape[-1])
-            state["second_momentum_buffer"] = torch.zeros(state_shape, dtype=dtype, device=device)
-        red_dim = -1 if shape[-2] >= shape[-1] else -2
+            if grad.ndim != 2:
+                if weight_decay != 0.0:
+                    p.add_(p, alpha=-lr * weight_decay)
+                p.add_(grad, alpha=-lr)
+                continue
 
-        # Build output buffer for all_gather
-        updated_params = torch.empty(chunk_size, *shape, dtype=dtype, device=device)
+            state = self.state[p]
+            m, n = grad.shape
 
-        if num_owned > 0:
-            owned_params = [params[start_idx + i] for i in range(num_owned)]
-            stacked_owned = torch.stack(owned_params)
+            if "step" not in state:
+                state["step"] = 0
+            state["step"] += 1
 
-            # Fill 0-D tensors and run fused kernel
-            self._muon_momentum_t.fill_(group["momentum"])
-            self._muon_beta2_t.fill_(group["beta2"])
-            self._muon_lr_t.fill_(group["lr"] * max(1.0, shape[-2] / shape[-1])**0.5)
-            self._muon_wd_t.fill_(group["weight_decay"])
-            muon_step_fused(
-                grad_chunk[:num_owned], stacked_owned,
-                state["momentum_buffer"][:num_owned], state["second_momentum_buffer"][:num_owned],
-                self._muon_momentum_t, self._muon_lr_t, self._muon_wd_t, self._muon_beta2_t,
-                group["ns_steps"], red_dim,
-            )
-            updated_params[:num_owned].copy_(stacked_owned)
+            eff_rank = max(1, min(rank, m, n))
 
-        if num_owned < chunk_size:
-            updated_params[num_owned:].zero_()
+            recompute_q = ("Q" not in state) or (state["step"] % update_freq == 1)
+            if recompute_q:
+                try:
+                    U, _, _ = torch.linalg.svd(grad, full_m=False)
+                    state["Q"] = U[:, :eff_rank].to(dtype=grad.dtype, device=grad.device)
+                except RuntimeError:
+                    if "Q" not in state:
+                        if weight_decay != 0.0:
+                            p.add_(p, alpha=-lr * weight_decay)
+                        p.add_(grad, alpha=-lr)
+                        continue
 
-        # Reuse stacked_grads buffer for all_gather output
-        stacked_params = info["stacked_grads"]
-        future = dist.all_gather_into_tensor(stacked_params, updated_params, async_op=True).get_future()
-        gather_list.append(dict(future=future, stacked_params=stacked_params, params=params))
+            Q = state["Q"]
 
-    def _finish_gathers(self, gather_list: list) -> None:
-        """Wait for all gathers and copy Muon params back."""
-        for info in gather_list:
-            info["future"].wait()
-            if info["params"] is not None:
-                # Muon: copy from stacked buffer back to individual params
-                torch._foreach_copy_(info["params"], list(info["stacked_params"][:len(info["params"])].unbind(0)))
+            G_hat = Q.transpose(-2, -1) @ grad  # (r, n)
+
+            if "M" not in state or state["M"].shape != G_hat.shape:
+                state["M"] = torch.zeros_like(G_hat)
+            M = state["M"]
+            M.mul_(beta).add_(G_hat, alpha=(1.0 - beta))
+
+            try:
+                U_m, _, Vh_m = torch.linalg.svd(M, full_m=False)
+                O = (U_m @ Vh_m).to(dtype=M.dtype)
+            except RuntimeError:
+                O = M
+
+            O_norm = torch.linalg.norm(O)
+            prev_norm = state.get("O_norm", None)
+            if prev_norm is not None and prev_norm > 0 and O_norm > 0:
+                if (O_norm / prev_norm) > gamma:
+                    O.mul_(gamma * prev_norm / (O_norm + 1e-8))
+            state["O_norm"] = float(O_norm.item())
+
+            delta = grad - Q @ (G_hat - O)
+
+            scale = math.sqrt(float(max(m, n)))
+            delta = delta / scale
+
+            if weight_decay != 0.0:
+                p.add_(p, alpha=-lr * weight_decay)
+
+            p.add_(delta, alpha=-lr)
 
     @torch.no_grad()
     def step(self):
-        rank = dist.get_rank()
-        world_size = dist.get_world_size()
+        if not dist.is_initialized():
+            raise RuntimeError("DistSUMOAdamW requires torch.distributed to be initialized")
 
-        # Phase 1: launch all async reduce ops
-        reduce_infos: list[dict] = []
+        # Synchronize gradients across ranks
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                dist.all_reduce(p.grad, op=dist.ReduceOp.AVG)
+
+        # Apply local optimizer updates
         for group in self.param_groups:
             if group['kind'] == 'adamw':
-                reduce_infos.append(self._reduce_adamw(group, world_size))
+                self._step_adamw(group)
             elif group['kind'] == 'muon':
-                reduce_infos.append(self._reduce_muon(group, world_size))
+                self._step_sumo(group)
             else:
                 raise ValueError(f"Unknown optimizer kind: {group['kind']}")
-
-        # Phase 2: wait for reduces, compute updates, launch gathers
-        gather_list: list[dict] = []
-        for group, info in zip(self.param_groups, reduce_infos):
-            if group['kind'] == 'adamw':
-                self._compute_adamw(group, info, gather_list, rank, world_size)
-            elif group['kind'] == 'muon':
-                self._compute_muon(group, info, gather_list, rank)
-            else:
-                raise ValueError(f"Unknown optimizer kind: {group['kind']}")
-
-        # Phase 3: wait for gathers, copy back
-        self._finish_gathers(gather_list)

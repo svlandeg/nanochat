@@ -20,7 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from nanochat.common import get_dist_info, print0, COMPUTE_DTYPE
-from nanochat.optim import MuonAdamW, DistMuonAdamW
+from nanochat.optim import SUMOAdamW, DistSUMOAdamW
 
 # Our custom Flash Attention module that automatically uses FA3 on Hopper+ and SDPA fallback elsewhere
 from nanochat.flash_attention import flash_attn
@@ -381,7 +381,7 @@ class GPT(nn.Module):
             dict(kind='adamw', params=resid_params, lr=scalar_lr * 0.01, betas=(0.8, 0.95), eps=1e-10, weight_decay=0.05),
             dict(kind='adamw', params=x0_params, lr=scalar_lr, betas=(0.96, 0.95), eps=1e-10, weight_decay=0.0),  # higher beta1 for x0
         ]
-        # Muon groups (matrix params, grouped by shape for stacking)
+        # Matrix groups (used with SUMO/Muon-style updates, grouped by shape)
         for shape in sorted({p.shape for p in matrix_params}):
             group_params = [p for p in matrix_params if p.shape == shape]
             param_groups.append(dict(
@@ -389,7 +389,7 @@ class GPT(nn.Module):
                 momentum=0.95, ns_steps=5, beta2=0.9, weight_decay=weight_decay,
             ))
 
-        Factory = DistMuonAdamW if ddp else MuonAdamW
+        Factory = DistSUMOAdamW if ddp else SUMOAdamW
         optimizer = Factory(param_groups)
         for group in optimizer.param_groups:
             group["initial_lr"] = group["lr"]
