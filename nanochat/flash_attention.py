@@ -36,7 +36,7 @@ def _load_flash_attention_3():
             hf_kernel = "varunneal/flash-attention-3"
             return get_kernel(hf_kernel).flash_attn_interface
         else:
-            hf_kernel = "kernels-community/flash-attn3"
+            hf_kernel = "kernels-community/flash-attn4"
             if has_kernel(hf_kernel):
                 return get_kernel(hf_kernel).flash_attn_interface
             else:
