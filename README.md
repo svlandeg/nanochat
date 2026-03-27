@@ -43,6 +43,12 @@ For development (adds pytest, matplotlib, ipykernel, transformers, etc.):
 uv sync --extra gpu --group dev
 ```
 
+If you plan on running scripts.chat_web:
+
+```bash
+uv sync --extra web
+```
+
 ### Reproduce and talk to GPT-2
 
 The most fun you can have is to train your own GPT-2 and talk to it. The entire pipeline to do so is contained in the single file [runs/speedrun.sh](runs/speedrun.sh), which is designed to be run on an 8XH100 GPU node. Boot up a new 8XH100 GPU box from your favorite provider (e.g. I use and like [Lambda](https://lambda.ai/service/gpu-cloud)), and kick off the training script:
@@ -51,9 +57,10 @@ The most fun you can have is to train your own GPT-2 and talk to it. The entire 
 bash runs/speedrun.sh
 ```
 
-You may wish to do so in a screen session as this will take ~3 hours to run. Once it's done, you can talk to it via the ChatGPT-like web UI. Make sure again that your local uv virtual environment is active (run `source .venv/bin/activate`), and serve it:
+You may wish to do so in a screen session as this will take ~3 hours to run. Once it's done, you can talk to it via the ChatGPT-like web UI. Make sure again that your local uv virtual environment is active (run `source .venv/bin/activate`) and has the `web` extra installed, and then serve it:
 
 ```bash
+uv sync --extra web
 python -m scripts.chat_web
 ```
 
