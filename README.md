@@ -43,7 +43,7 @@ For development (adds pytest, matplotlib, ipykernel, transformers, etc.):
 uv sync --extra gpu --group dev
 ```
 
-If you plan on running scripts.chat_web:
+If you plan on running `scripts.chat_web`:
 
 ```bash
 uv sync --extra web
