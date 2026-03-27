@@ -37,16 +37,18 @@ uv sync --extra cpu    # (or) Use for CPU-only / MPS
 source .venv/bin/activate
 ```
 
+If you plan on running `scripts.chat_web` to chat with your model via a web UI, add the extra "web":
+
+```bash
+uv sync --extra gpu --extra web    # Use for CUDA (A100/H100/etc.)
+uv sync --extra cpu --extra web    # (or) Use for CPU-only / MPS
+source .venv/bin/activate
+```
+
 For development (adds pytest, matplotlib, ipykernel, transformers, etc.):
 
 ```bash
 uv sync --extra gpu --group dev
-```
-
-If you plan on running `scripts.chat_web`:
-
-```bash
-uv sync --extra web
 ```
 
 ### Reproduce and talk to GPT-2
@@ -57,10 +59,9 @@ The most fun you can have is to train your own GPT-2 and talk to it. The entire 
 bash runs/speedrun.sh
 ```
 
-You may wish to do so in a screen session as this will take ~3 hours to run. Once it's done, you can talk to it via the ChatGPT-like web UI. Make sure again that your local uv virtual environment is active (run `source .venv/bin/activate`) and has the `web` extra installed, and then serve it:
+You may wish to do so in a screen session as this will take ~3 hours to run. Once it's done, you can talk to it via the ChatGPT-like web UI. Make sure again that your local uv virtual environment (with the "web" extra) is active (run `source .venv/bin/activate`), and serve it:
 
 ```bash
-uv sync --extra web
 python -m scripts.chat_web
 ```
 
