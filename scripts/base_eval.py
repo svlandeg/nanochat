@@ -237,18 +237,18 @@ def main():
                 "If 5*x + 3 = 13, then x is",
             ]
             engine = Engine(model, tokenizer)
-            # print0("\nConditioned samples:")
-            # for prompt in prompts:
-            #     tokens = tokenizer(prompt, prepend="<|bos|>")
-            #     sample, _ = engine.generate_batch(tokens, num_samples=1, max_tokens=16, temperature=0)
-            #     # Decode only the generated suffix and stitch it onto the raw prompt.
-            #     # This avoids tokenizer special-token quirks that can hide the prefix.
-            #     generated_suffix_tokens = sample[0][len(tokens):]
-            #     generated_suffix_str = tokenizer.decode(generated_suffix_tokens)
-            #     sample_str = prompt + " ..." + generated_suffix_str
-            #     print0("-" * 80)
-            #     print0(sample_str)
-            #     samples.append(sample_str)
+            print0("\nConditioned samples:")
+            for prompt in prompts:
+                tokens = tokenizer(prompt, prepend="<|bos|>")
+                sample, _ = engine.generate_batch(tokens, num_samples=1, max_tokens=16, temperature=0)
+                # Decode only the generated suffix and stitch it onto the raw prompt.
+                # This avoids tokenizer special-token quirks that can hide the prefix.
+                generated_suffix_tokens = sample[0][len(tokens):]
+                generated_suffix_str = tokenizer.decode(generated_suffix_tokens)
+                sample_str = prompt + " ..." + generated_suffix_str
+                print0("-" * 80)
+                print0(sample_str)
+                samples.append(sample_str)
 
             print0("\nUnconditioned samples:")
             tokens = tokenizer("", prepend="<|bos|>")
