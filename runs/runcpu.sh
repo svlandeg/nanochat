@@ -29,7 +29,7 @@ python -m scripts.tok_eval
 # train a small 4 layer model
 # I tuned this run to complete in about 30 minutes on my MacBook Pro M3 Max.
 # To get better results, try increasing num_iterations, or get other ideas from your favorite LLM.
-python -m scripts.base_train --depth=6 --head-dim=64 --window-pattern=L --max-seq-len=1024 --device-batch-size=16 --eval-every=-1 --core-metric-every=-1 --sample-every=-1 --num-iterations=10
+python -m scripts.base_train --depth=6 --head-dim=64 --window-pattern=L --max-seq-len=512 --device-batch-size=16 --eval-every=-1 --core-metric-every=-1 --sample-every=-1 --num-iterations=10
 python -m scripts.base_eval --eval "sample"
 
 # SFT (~10 minutes on my MacBook Pro M3 Max)
