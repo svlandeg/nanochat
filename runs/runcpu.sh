@@ -30,7 +30,7 @@ python -m scripts.tok_train --max-chars=2000000000
 # I tuned this run to complete in about 30 minutes on my MacBook Pro M3 Max.
 # To get better results, try increasing num_iterations, or get other ideas from your favorite LLM.
 python -m scripts.base_train --depth=6 --head-dim=64 --window-pattern=L --max-seq-len=512 --device-batch-size=32 --total-batch-size=16384 --eval-every=-1 --eval-tokens=524288 --core-metric-every=-1 --sample-every=-1 --num-iterations=50
-# python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
+python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
 
 # SFT (~10 minutes on my MacBook Pro M3 Max)
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
