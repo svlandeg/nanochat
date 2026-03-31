@@ -10,6 +10,8 @@ ls -al $NANOCHAT_BASE_DIR
 
 # python -m scripts.chat_eval -i sft
 
+echo "*****************************************************************"
+
 # chat with the model over CLI! 
 # python -m scripts.chat_cli -p "What is the capital of France?"
 python -m scripts.chat_cli
