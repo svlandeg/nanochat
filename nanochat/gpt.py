@@ -237,6 +237,11 @@ class GPT(nn.Module):
         # Decaying x0 init: earlier layers get more input embedding blending
         for i in range(n_layer):
             self.x0_lambdas.data[i] = 0.20 - (0.15 * i / max(n_layer - 1, 1))
+        # Smear/backout scalars and smear gate must be explicitly initialized because
+        # model.to_empty() leaves storage uninitialized before init_weights() runs.
+        torch.nn.init.uniform_(self.smear_gate.weight, 0.0, 0.02)
+        torch.nn.init.zeros_(self.smear_lambda)
+        self.backout_lambda.fill_(0.2)
 
         # Value embeddings (init like c_v: uniform with same std)
         for ve in self.value_embeds.values():
