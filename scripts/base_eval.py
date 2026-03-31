@@ -243,17 +243,18 @@ def main():
                 sample, _ = engine.generate_batch(tokens, num_samples=1, max_tokens=16, temperature=0)
                 sample_str = tokenizer.decode(sample[0])
                 print0("-" * 80)
+                print0(prompt)
                 print0(sample_str)
                 samples.append(sample_str)
 
-            print0("\nUnconditioned samples:")
-            tokens = tokenizer("", prepend="<|bos|>")
-            uncond, _ = engine.generate_batch(tokens, num_samples=8, max_tokens=128, temperature=1.0)
-            for sample in uncond:
-                sample_str = tokenizer.decode(sample)
-                print0("-" * 80)
-                print0(sample_str)
-                unconditioned_samples.append(sample_str)
+            # print0("\nUnconditioned samples:")
+            # tokens = tokenizer("", prepend="<|bos|>")
+            # uncond, _ = engine.generate_batch(tokens, num_samples=8, max_tokens=128, temperature=1.0)
+            # for sample in uncond:
+                # sample_str = tokenizer.decode(sample)
+                # print0("-" * 80)
+                # print0(sample_str)
+                # unconditioned_samples.append(sample_str)
     elif 'sample' in eval_modes and is_hf_model:
         print0("\nSkipping sampling for HuggingFace models (not supported)")
 
