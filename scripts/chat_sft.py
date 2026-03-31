@@ -344,21 +344,21 @@ while True:
         last_step = bool(last_step_tensor.item())
 
     # once in a while: evaluate the val bpb (all ranks participate)
-    if last_step or (args.eval_every > 0 and step % args.eval_every == 0):
-        model.eval()
-        val_loader = build_val_loader()
-        eval_steps = args.eval_tokens // (args.device_batch_size * args.max_seq_len * ddp_world_size)
-        val_bpb = evaluate_bpb(model, val_loader, eval_steps, token_bytes)
-        print0(f"Step {step:05d} | Validation bpb: {val_bpb:.4f}")
-        if val_bpb < min_val_bpb:
-            min_val_bpb = val_bpb
-        wandb_run.log({
-            "step": step,
-            "total_training_flops": flops_so_far,
-            "total_training_time": total_training_time,
-            "val/bpb": val_bpb,
-        })
-        model.train()
+    # if last_step or (args.eval_every > 0 and step % args.eval_every == 0):
+    #     model.eval()
+    #     val_loader = build_val_loader()
+    #     eval_steps = args.eval_tokens // (args.device_batch_size * args.max_seq_len * ddp_world_size)
+    #     val_bpb = evaluate_bpb(model, val_loader, eval_steps, token_bytes)
+    #     print0(f"Step {step:05d} | Validation bpb: {val_bpb:.4f}")
+    #     if val_bpb < min_val_bpb:
+    #         min_val_bpb = val_bpb
+    #     wandb_run.log({
+    #         "step": step,
+    #         "total_training_flops": flops_so_far,
+    #         "total_training_time": total_training_time,
+    #         "val/bpb": val_bpb,
+    #     })
+    #     model.train()
 
     # once in a while: estimate the ChatCORE metric (all ranks participate)
     # use the original uncompiled model because the inputs keep changing shape
