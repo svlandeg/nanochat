@@ -11,6 +11,7 @@
 # You may also want to run this script manually and one by one, copy pasting commands into your terminal.
 
 # all the setup stuff
+export WANDB_RUN="fedora_d6_cpu"
 export NANOCHAT_BASE_DIR="$HOME/.cache/nanochat"
 mkdir -p $NANOCHAT_BASE_DIR
 command -v uv &> /dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -24,7 +25,7 @@ fi
 # train tokenizer on ~2B characters (~34 seconds on my MacBook Pro M3 Max)
 python -m nanochat.dataset -n 8
 python -m scripts.tok_train --max-chars=2000000000
-python -m scripts.tok_eval
+# python -m scripts.tok_eval
 
 # train a small 4 layer model
 # I tuned this run to complete in about 30 minutes on my MacBook Pro M3 Max.
@@ -42,7 +43,7 @@ python -m scripts.base_train \
     --sample-every=100 \
     --num-iterations=5000 \
     --run=$WANDB_RUN
-python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
+# python -m scripts.base_eval --device-batch-size=1 --split-tokens=16384 --max-per-task=16
 
 # SFT (~10 minutes on my MacBook Pro M3 Max)
 curl -L -o $NANOCHAT_BASE_DIR/identity_conversations.jsonl https://karpathy-public.s3.us-west-2.amazonaws.com/identity_conversations.jsonl
