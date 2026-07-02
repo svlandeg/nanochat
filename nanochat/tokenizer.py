@@ -65,6 +65,7 @@ class HuggingFaceTokenizer:
     @classmethod
     def train_from_iterator(cls, text_iterator, vocab_size):
         # train from an iterator of text
+        cls._try_import()
         from tokenizers import Tokenizer as HFTokenizer
         from tokenizers import pre_tokenizers, decoders, Regex
         from tokenizers.models import BPE

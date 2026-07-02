@@ -45,7 +45,7 @@ uv sync --extra cpu --extra hf    # (or) Use for CPU-only / MPS
 source .venv/bin/activate
 ```
 
-For development (adds pytest, matplotlib, ipykernel, transformers, etc.):
+For development (adds pytest, matplotlib, ipykernel, etc.):
 
 ```bash
 uv sync --extra gpu --group dev
